@@ -1,4 +1,3 @@
-import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import axios from "axios";
 import * as ti from "technicalindicators";
@@ -8,28 +7,15 @@ dotenv.config();
 
 // =================== CONFIG ===================
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const PORT = process.env.PORT || 3000;
-
-if (!TELEGRAM_TOKEN || !WEBHOOK_URL) {
-  console.error("❌ TELEGRAM_TOKEN or WEBHOOK_URL missing!");
+if (!TELEGRAM_TOKEN) {
+  console.error("❌ TELEGRAM_TOKEN missing!");
   process.exit(1);
 }
 
-// =================== INIT BOT ===================
-const bot = new TelegramBot(TELEGRAM_TOKEN);
-bot.setWebHook(`${WEBHOOK_URL}/bot${TELEGRAM_TOKEN}`);
+// =================== INIT BOT (POLLING MODE) ===================
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-const app = express();
-app.use(express.json());
-app.get("/", (req, res) => res.send("Crypto Bot Running ✅"));
-app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
-
-// =================== SYMBOL & TIMEFRAME ===================
+// =================== SYMBOLS & TIMEFRAMES ===================
 const PAIRS = { BTC: "BTC", ETH: "ETH", DOT: "DOT", LINK: "LINK", SUI: "SUI" };
 const INTERVAL_MAP = { "5m": 5, "15m": 15, "1h": 60 };
 
@@ -58,7 +44,7 @@ async function fetchCandles(symbol, timeframe) {
   }
 }
 
-// =================== SIGNAL CALCULATION ===================
+// =================== CALCULATE SIGNAL ===================
 function calculateSignal(candles) {
   const closes = candles.map(c => c.close);
   const highs = candles.map(c => c.high);
