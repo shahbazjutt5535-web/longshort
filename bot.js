@@ -149,7 +149,7 @@ Take Profit: ${signal.tp}
 ━━━━━━━━━━━━━━━━━━
 📅 Date/Time: ${new Date().toLocaleString()}
 ━━━━━━━━━━━━━━━━━━
-/BTC /ETH /LINK /DOT /SUI
+/eth5m /eth15m /eth1h /sui5m /sui15m /sui1h
 `;
 }
 
