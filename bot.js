@@ -1,4 +1,4 @@
-// ✅ Fresh bot.js with same day high/low Fibonacci, EMA 9/21 + Bollinger, MACD, RSI/SMA, ADX, Volume, Mobile-friendly
+// ✅ Fresh bot.js with requested Telegram output format including Fibonacci same-day high/low
 
 import axios from 'axios';
 import express from 'express';
@@ -78,14 +78,11 @@ async function calculateSignal(symbol,timeframe){
   const tp1 = entry + lastATR*1.5;
   const tp2 = entry + lastATR*3;
 
-  // Fibonacci based on same day high/low
   const dayHigh = Math.max(...highs);
   const dayLow = Math.min(...lows);
 
   const message = `
 ${symbol.toUpperCase()} (${timeframe.toUpperCase()}) 🚨 ${lastEMA9>lastEMA21?'LONG':'SHORT'} SIGNAL
-
-Price: ${lastPrice.toFixed(2)}
 
 📊 Trend: ${lastEMA9>lastEMA21?'Bullish':'Bearish'}
 
@@ -94,17 +91,18 @@ EMA 9 & 21 vs Middle Bollinger: ${emaBBSignal}
 
 Bollinger Bands: Price at ${lastPrice>lastBB.upper?'Upper':'Lower'} band ${lastPrice>lastBB.upper?'(might be price drop now)':'(might be now price go up)'}
 MACD: ${macd[macd.length-1].histogram>0?'✅ Bullish':'❌ Bearish'}
-RSI:
+RSI: ${lastRSI.toFixed(2)}
 RSI+SMA: ${rsiSignal}
 ADX: ${adxSignal}
 Volume: ${volSignal}
+Price: ${lastPrice.toFixed(2)}
 
 🎯 Entry Zone: ${entry.toFixed(2)}
 SL (ATR-based): ${sl.toFixed(2)}
 TP1: ${tp1.toFixed(2)}
 TP2: ${tp2.toFixed(2)}
 
-🔶 Fibonacci Levels (1D high/low based)
+🔶 Fibonacci Levels (same-day high/low based)
 0.786 → ${(dayHigh - (dayHigh-dayLow)*0.786).toFixed(2)}
 0.618 → ${(dayHigh - (dayHigh-dayLow)*0.618).toFixed(2)}
 0.382 → ${(dayHigh - (dayHigh-dayLow)*0.382).toFixed(2)}
