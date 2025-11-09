@@ -1,4 +1,4 @@
-// ✅ Fresh bot.js with requested Telegram output format including Fibonacci same-day high/low
+// ✅ Fresh bot.js with RSI14 smoothed with SMA9 and requested Telegram output format
 
 import axios from 'axios';
 import express from 'express';
@@ -11,7 +11,7 @@ dotenv.config();
 const app = express();
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const PORT = process.env.PORT || 3000;
-const bot = new TelegramBot(TELEGRAM_TOKEN, {polling: true});
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
 const SYMBOLS = ['BTC','ETH','LINK','DOT','SUI','XRP'];
 const TIMEFRAMES = ['5m','15m','1h'];
@@ -48,20 +48,21 @@ async function calculateSignal(symbol,timeframe){
   const ema9 = EMA.calculate({period:9,values:closes});
   const ema21 = EMA.calculate({period:21,values:closes});
   const macd = MACD.calculate({values:closes,fastPeriod:12,slowPeriod:26,signalPeriod:9,SimpleMAOscillator:false,SimpleMASignal:false});
-  const rsi = RSI.calculate({period:14,values:closes});
-  const sma9 = SMA.calculate({period:9,values:closes});
+  const rsi14 = RSI.calculate({period:14,values:closes});
+  const rsiSMA9 = SMA.calculate({period:9,values:rsi14}); // Smoothed RSI
   const bb = BollingerBands.calculate({period:20,values:closes,stdDev:2});
   const adx = ADX.calculate({high:highs,low:lows,close:closes,period:14});
   const atr = ATR.calculate({high:highs,low:lows,close:closes,period:14});
 
-  const lastRSI = rsi[rsi.length-1];
-  const lastSMA9 = sma9[sma9.length-1];
   const lastEMA9 = ema9[ema9.length-1];
   const lastEMA21 = ema21[ema21.length-1];
   const lastBB = bb[bb.length-1];
   const lastADX = adx[adx.length-1] ? adx[adx.length-1].adx : 0;
   const lastATR = atr[atr.length-1];
+  const lastRSI = rsi14[rsi14.length-1];
+  const lastRSISMA9 = rsiSMA9[rsiSMA9.length-1] || lastRSI;
 
+  // EMA Signals
   const emaCrossSignal = lastEMA9 > lastEMA21 ? '✅ Bullish' : '❌ Bearish';
   let emaBBSignal = '';
   if(lastEMA9 > lastBB.middle && lastEMA21 > lastBB.middle) emaBBSignal='✅✅ Strong Bullish';
@@ -69,7 +70,11 @@ async function calculateSignal(symbol,timeframe){
   else if(lastEMA9 < lastBB.middle && lastEMA21 > lastBB.middle) emaBBSignal='❌ Mixed/Bearish';
   else emaBBSignal='❌ Strong Bearish';
 
-  const rsiSignal = lastRSI > lastSMA9 ? `✅ RSI up (${lastRSI.toFixed(2)} > SMA9 ${lastSMA9.toFixed(2)})` : `❌ RSI down (${lastRSI.toFixed(2)} < SMA9 ${lastSMA9.toFixed(2)})`;
+  // RSI+SMA9 signal using smoothed RSI
+  const rsiSignal = lastRSI > lastRSISMA9 
+      ? `✅ RSI Bullish (${lastRSI.toFixed(2)} > SMA9 ${lastRSISMA9.toFixed(2)})` 
+      : `❌ RSI Bearish (${lastRSI.toFixed(2)} < SMA9 ${lastRSISMA9.toFixed(2)})`;
+
   const adxSignal = lastADX > 25 ? `✅ Trend Strong (${lastADX.toFixed(2)})` : `❌ Weak Trend (${lastADX.toFixed(2)})`;
   const volSignal = vols[vols.length-1] > vols[vols.length-2] ? `✅ Increasing (OBV rising)` : `❌ Decreasing (OBV falling)`;
 
@@ -104,16 +109,16 @@ TP2: ${tp2.toFixed(2)}
 
 🟢 ${lastEMA9>lastEMA21?'Long':'Short'} Bias
 
-Commands: /eth5m /eth15m /eth1h /xrp5m /xrp15m /xrp1h
+Commands: /BTC5m /BTC15m /BTC1h /ETH5m /ETH15m /ETH1h /LINK5m /LINK15m /LINK1h /DOT5m /DOT15m /DOT1h /SUI5m /SUI15m /SUI1h /XRP5m /XRP15m /XRP1h
 `;
 
   return message;
 }
 
-bot.onText(/\/(BTC|ETH|LINK|DOT|SUI)(5m|15m|1h)?/i, async (msg, match) => {
+bot.onText(/\/(BTC|ETH|LINK|DOT|SUI|XRP)(5m|15m|1h)?/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const symbol = match[1].toUpperCase();
-  const timeframe = match[2] || '1h';  // Default to 1h if no timeframe provided
+  const timeframe = match[2] || '1h';
   const signal = await calculateSignal(symbol, timeframe);
   bot.sendMessage(chatId, signal);
 });
