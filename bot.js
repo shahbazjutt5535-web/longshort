@@ -16,35 +16,40 @@ if (!TELEGRAM_TOKEN || !WEBHOOK_URL) {
   process.exit(1);
 }
 
+// =================== INIT BOT ===================
 const bot = new TelegramBot(TELEGRAM_TOKEN);
 bot.setWebHook(`${WEBHOOK_URL}/bot${TELEGRAM_TOKEN}`);
 
 const app = express();
 app.use(express.json());
-
 app.get("/", (req, res) => res.send("Crypto Bot Running ✅"));
 app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
-
 app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
 
-// =================== BINANCE FETCH ===================
-async function fetchCandles(symbol) {
-  try {
-    // symbol mapping for CryptoCompare
-    const map = {
-      BTCUSDT: "BTC",
-      ETHUSDT: "ETH",
-      DOTUSDT: "DOT",
-      LINKUSDT: "LINK",
-      SUIUSDT: "SUI"
-    };
-    const crypto = map[symbol];
-    if (!crypto) return null;
+// =================== SYMBOL MAPPING ===================
+const PAIRS = {
+  BTC: "BTC",
+  ETH: "ETH",
+  DOT: "DOT",
+  LINK: "LINK",
+  SUI: "SUI"
+};
 
-    const url = `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${crypto}&tsym=USDT&limit=100`;
+// =================== TIMEFRAME MAPPING ===================
+const INTERVAL_MAP = {
+  "5m": 5,
+  "15m": 15,
+  "1h": 60
+};
+
+// =================== FETCH CANDLES ===================
+async function fetchCandles(symbol, timeframe) {
+  try {
+    const limit = 100;
+    const url = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USDT&limit=${limit}&aggregate=${timeframe}`;
     const { data } = await axios.get(url);
     if (data.Response !== "Success") return null;
 
@@ -62,10 +67,7 @@ async function fetchCandles(symbol) {
 }
 
 // =================== SIGNAL CALCULATION ===================
-async function getSignal(symbol) {
-  const candles = await fetchCandles(symbol);
-  if (!candles) return "⚠️ Data fetch failed.";
-
+function calculateSignal(candles) {
   const closes = candles.map(c => c.close);
   const highs = candles.map(c => c.high);
   const lows = candles.map(c => c.low);
@@ -91,26 +93,26 @@ async function getSignal(symbol) {
   const lastOBV = OBV.slice(-1)[0];
   const latestPrice = closes.slice(-1)[0];
 
-  // Fibonacci 0.0618 level based on recent high/low
+  // Fibonacci 0.618
   const recentHigh = Math.max(...highs.slice(-100));
   const recentLow = Math.min(...lows.slice(-100));
   const fibLevel = recentHigh - (recentHigh - recentLow) * 0.618;
-  const fibComment = latestPrice > fibLevel ? "Above 0.618" : latestPrice < fibLevel ? "Below 0.618" : "At 0.618";
+  const fibComment = latestPrice > fibLevel ? "✅ Above 0.618" : latestPrice < fibLevel ? "❌ Below 0.618" : "⚪ At 0.618";
 
-  // Determine signals
-  const emaSignal = lastEMA9 > lastEMA21 ? "Bullish" : "Bearish";
-  const macdSignal = lastMACD.MACD > lastMACD.signal ? "Bullish crossover" : "Bearish crossover";
-  const volObvSignal = OBV[OBV.length-1] > OBV[OBV.length-2] ? "Increasing" : "Decreasing";
-  const rsiSignal = lastRSI >= 55 && lastRSI <= 57 ? "Up to 57" : lastRSI < 55 ? "Down from 55" : lastRSI > 57 ? "Above 57" : "-";
+  // Signals table
+  const emaSignal = lastEMA9 > lastEMA21 ? "✅ Bullish" : "❌ Bearish";
+  const macdSignal = lastMACD.MACD > lastMACD.signal ? "✅ Bullish crossover" : "❌ Bearish crossover";
+  const volObvSignal = OBV[OBV.length-1] > OBV[OBV.length-2] ? "✅ Increasing" : "❌ Decreasing";
+  const rsiSignal = lastRSI >= 55 && lastRSI <= 57 ? `✅ RSI ${lastRSI.toFixed(2)}` : `❌ RSI ${lastRSI.toFixed(2)}`;
 
   let tradeSignal = "";
   let sl = "", tp = "";
 
-  if (emaSignal === "Bullish" && macdSignal.includes("Bullish") && lastRSI > 50) {
+  if (lastEMA9 > lastEMA21 && lastMACD.MACD > lastMACD.signal && lastRSI > 50) {
     tradeSignal = "LONG ✅";
     sl = (latestPrice * 0.97).toFixed(3);
     tp = (latestPrice * 1.03).toFixed(3);
-  } else if (emaSignal === "Bearish" && macdSignal.includes("Bearish") && lastRSI < 50) {
+  } else if (lastEMA9 < lastEMA21 && lastMACD.MACD < lastMACD.signal && lastRSI < 50) {
     tradeSignal = "SHORT ❌";
     sl = (latestPrice * 1.03).toFixed(3);
     tp = (latestPrice * 0.97).toFixed(3);
@@ -118,25 +120,27 @@ async function getSignal(symbol) {
     tradeSignal = "NO CLEAR SIGNAL ⚠️";
   }
 
-  // Return formatted table + details
+  return { latestPrice, tradeSignal, sl, tp, emaSignal, macdSignal, volObvSignal, rsiSignal, fibComment };
+}
+
+// =================== FORMAT MESSAGE ===================
+function formatMessage(symbol, timeframe, signal) {
   return `
-📊 *${symbol} — 1H Technical Signal*
+📊 ${symbol} — (${timeframe}) Technical Signal
 ━━━━━━━━━━━━━━━━━━
-*Trade Signal:* ${tradeSignal}
-*Entry Price:* ${latestPrice}
-*Stop Loss:* ${sl}
-*Take Profit:* ${tp}
+Trade Signal: ${signal.tradeSignal}
+Entry Price: ${signal.latestPrice}
+Stop Loss: ${signal.sl}
+Take Profit: ${signal.tp}
 ━━━━━━━━━━━━━━━━━━
 | Indicator | Status | Comment |
 |-----------|--------|---------|
-| EMA 9/21 | ${emaSignal} | EMA 9 is ${emaSignal === "Bullish" ? "above" : "below"} EMA 21 |
-| MACD | ${macdSignal} | ${macdSignal} |
-| Volume+OBV | ${volObvSignal} | OBV trend ${volObvSignal} |
-| RSI 14 | ${rsiSignal} | Momentum strength |
-| Fibonacci 0.618 | ${fibComment} | Price relation to fib level |
+| EMA 9/21 | ${signal.emaSignal} | EMA9 vs EMA21 |
+| MACD | ${signal.macdSignal} | MACD crossover |
+| Volume+OBV | ${signal.volObvSignal} | OBV trend |
+| RSI 14 | ${signal.rsiSignal} | Momentum strength |
+| Fibonacci 0.618 | ${signal.fibComment} | Price vs fib level |
 ━━━━━━━━━━━━━━━━━━
-⏱ Timeframe: 1H
-✅ Accuracy est.: 85–90%
 📅 Date/Time: ${new Date().toLocaleString()}
 ━━━━━━━━━━━━━━━━━━
 /BTC /ETH /LINK /DOT /SUI
@@ -144,29 +148,31 @@ async function getSignal(symbol) {
 }
 
 // =================== TELEGRAM COMMANDS ===================
-const PAIRS = {
-  BTC: "BTCUSDT",
-  ETH: "ETHUSDT",
-  DOT: "DOTUSDT",
-  LINK: "LINKUSDT",
-  SUI: "SUIUSDT"
-};
-
 bot.onText(/\/start/, msg => {
   bot.sendMessage(msg.chat.id, `👋 Welcome to Crypto Signal Bot
-Use:
-/BTC
-/ETH
-/LINK
-/DOT
-/SUI`);
+Use commands like:
+/eth5m
+/btc1h
+/link15m
+/dot5m
+/sui1h`);
 });
 
-Object.keys(PAIRS).forEach(cmd => {
-  bot.onText(new RegExp(`/${cmd}`, "i"), async msg => {
-    const symbol = PAIRS[cmd];
-    bot.sendMessage(msg.chat.id, `🔄 Fetching signal for *${symbol}* ...`);
-    const result = await getSignal(symbol);
-    bot.sendMessage(msg.chat.id, result, { parse_mode: "Markdown" });
+Object.keys(PAIRS).forEach(coin => {
+  Object.keys(INTERVAL_MAP).forEach(tf => {
+    const command = new RegExp(`/${coin.toLowerCase()}${tf}`, "i");
+    bot.onText(command, async msg => {
+      const symbol = PAIRS[coin];
+      const timeframe = tf;
+      bot.sendMessage(msg.chat.id, `🔄 Fetching signal for *${symbol} (${timeframe})* ...`);
+      const candles = await fetchCandles(symbol, INTERVAL_MAP[tf]);
+      if (!candles) {
+        bot.sendMessage(msg.chat.id, `⚠️ Failed to fetch data for ${symbol} (${timeframe})`);
+        return;
+      }
+      const signal = calculateSignal(candles);
+      const message = formatMessage(symbol, timeframe, signal);
+      bot.sendMessage(msg.chat.id, message, { parse_mode: "Markdown" });
+    });
   });
 });
