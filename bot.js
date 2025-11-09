@@ -102,7 +102,6 @@ SL (ATR-based): ${sl.toFixed(2)}
 TP1: ${tp1.toFixed(2)}
 TP2: ${tp2.toFixed(2)}
 
-
 🟢 ${lastEMA9>lastEMA21?'Long':'Short'} Bias
 
 Commands: /BTC /ETH /LINK /DOT /SUI
