@@ -5,32 +5,27 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// =================== CONFIG ===================
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 if (!TELEGRAM_TOKEN) {
-  console.error("❌ TELEGRAM_TOKEN missing!");
+  console.error("❌ TELEGRAM_TOKEN missing in .env");
   process.exit(1);
 }
 
-// =================== INIT BOT (POLLING MODE) ===================
+// ✅ POLLING MODE (NO PORT REQUIRED)
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-// =================== SYMBOLS & TIMEFRAMES ===================
 const PAIRS = { BTC: "BTC", ETH: "ETH", DOT: "DOT", LINK: "LINK", SUI: "SUI" };
-const INTERVAL_MAP = { "5m": 5, "15m": 15, "1h": 60 };
+const TF = { "5m": 5, "15m": 15, "1h": 60 };
 
-// =================== FETCH CANDLES ===================
 async function fetchCandles(symbol, timeframe) {
   try {
-    const limit = 150;
-    let url = "";
-    if (timeframe === 60) {
-      url = `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${symbol}&tsym=USDT&limit=${limit}`;
-    } else {
-      url = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USDT&limit=${limit}&aggregate=${timeframe}`;
-    }
+    const url = timeframe === 60
+      ? `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${symbol}&tsym=USDT&limit=150`
+      : `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USDT&limit=150&aggregate=${timeframe}`;
+
     const { data } = await axios.get(url);
     if (data.Response !== "Success") return null;
+
     return data.Data.Data.map(c => ({
       open: c.open,
       high: c.high,
@@ -38,42 +33,28 @@ async function fetchCandles(symbol, timeframe) {
       close: c.close,
       volume: c.volumeto
     }));
-  } catch (err) {
-    console.log("❌ Fetch failed:", err.message);
+  } catch (error) {
+    console.log("❌ Fetch failed:", error.message);
     return null;
   }
 }
 
-// =================== CALCULATE SIGNAL ===================
 function calculateSignal(candles) {
-  const closes = candles.map(c => c.close);
-  const highs = candles.map(c => c.high);
-  const lows = candles.map(c => c.low);
-  const volumes = candles.map(c => c.volume);
+  const closes = candles.map(x => x.close);
+  const highs = candles.map(x => x.high);
+  const lows = candles.map(x => x.low);
+  const volumes = candles.map(x => x.volume);
 
-  // EMA 9/21/50/200
   const EMA9 = ti.EMA.calculate({ period: 9, values: closes });
   const EMA21 = ti.EMA.calculate({ period: 21, values: closes });
-  const EMA50 = ti.EMA.calculate({ period: 50, values: closes });
-  const EMA200 = ti.EMA.calculate({ period: 200, values: closes });
-
-  // Bollinger Bands
   const BB = ti.BollingerBands.calculate({ period: 20, stdDev: 2, values: closes });
-
-  // MACD
-  const MACD = ti.MACD.calculate({
-    values: closes,
-    fastPeriod: 12,
-    slowPeriod: 26,
-    signalPeriod: 9,
-    SimpleMAOscillator: false,
-    SimpleMASignal: false
-  });
-
-  // RSI 14
+  const MACD = ti.MACD.calculate({ values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 });
   const RSI14 = ti.RSI.calculate({ period: 14, values: closes });
+  const OBV = ti.OBV.calculate({ close: closes, volume: volumes });
+  const ADX = ti.ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
+  const ATR = ti.ATR.calculate({ high: highs, low: lows, close: closes, period: 14 });
 
-  // Stochastic RSI
+  // ✅ FIXED StochRSI
   const StochRSI = ti.StochasticRSI.calculate({
     values: closes,
     rsiPeriod: 14,
@@ -82,145 +63,93 @@ function calculateSignal(candles) {
     dPeriod: 3
   });
 
-  // OBV
-  const OBV = ti.OBV.calculate({ close: closes, volume: volumes });
-
-  // ADX
-  const ADX = ti.ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
-
-  // ATR
-  const ATR = ti.ATR.calculate({ high: highs, low: lows, close: closes, period: 14 });
-
-  // Volume EMA
-  const volumeEMA = ti.EMA.calculate({ period: 20, values: volumes });
+  const lastStoch = StochRSI.slice(-1)[0] || null;
 
   const latest = {
-    close: closes.slice(-1)[0],
-    ema9: EMA9.slice(-1)[0],
-    ema21: EMA21.slice(-1)[0],
-    ema50: EMA50.slice(-1)[0],
-    ema200: EMA200.slice(-1)[0],
-    bb: BB.slice(-1)[0],
-    macd: MACD.slice(-1)[0],
-    rsi: RSI14.slice(-1)[0],
-    stochRsi: StochRSI.slice(-1)[0],
-    obv: OBV.slice(-1)[0],
-    adx: ADX.slice(-1)[0],
-    atr: ATR.slice(-1)[0],
-    volumeEMA: volumeEMA.slice(-1)[0],
-    volume: volumes.slice(-1)[0]
+    close: closes.at(-1),
+    ema9: EMA9.at(-1),
+    ema21: EMA21.at(-1),
+    bb: BB.at(-1),
+    macd: MACD.at(-1),
+    rsi: RSI14.at(-1),
+    stoch: lastStoch,
+    obv: OBV.at(-1),
+    adx: ADX.at(-1),
+    atr: ATR.at(-1),
+    volume: volumes.at(-1)
   };
 
-  // =================== TRADE SIGNAL ===================
-  let tradeSignal = "", sl="", tp="";
+  const bollSignal =
+    latest.ema9 > latest.bb.middle && latest.ema21 > latest.bb.middle
+      ? `✅✅ Strong Bullish`
+      : latest.ema9 > latest.bb.middle
+      ? `✅ Small Bullish`
+      : `❌ Bearish Below Middle Band`;
 
-  const ema9 = latest.ema9, ema21 = latest.ema21, bbMiddle = latest.bb ? latest.bb.middle : null;
-  const close = latest.close;
-
-  // Bollinger / EMA logic
-  let bollEmaSignal = "";
-  if (ema9 > bbMiddle && ema21 > bbMiddle) bollEmaSignal = "✅✅ Strong Bullish";
-  else if (ema9 > bbMiddle) bollEmaSignal = "✅ Small Bullish";
-  else if (ema9 < bbMiddle && ema21 > bbMiddle) bollEmaSignal = "❌ Bearish";
-  else bollEmaSignal = "⚪ Neutral";
-
-  // Price touching bands
-  const priceBandSignal = close <= latest.bb.lower ? "✅ Price at Lower Band → Potential LONG" :
-                          close >= latest.bb.upper ? "❌ Price at Upper Band → Potential SHORT" : "⚪ Price in middle band";
-
-  // MACD
   const macdSignal = latest.macd.MACD > latest.macd.signal ? "✅ Bullish crossover" : "❌ Bearish crossover";
-
-  // RSI
   const rsiSignal = latest.rsi >= 55 ? `✅ RSI ${latest.rsi.toFixed(2)}` : `❌ RSI ${latest.rsi.toFixed(2)}`;
 
-  // Stoch RSI
-  let stochSignal = "⚪ Neutral";
-  if (latest.stochRsi) {
-    const k = latest.stochRsi.k.slice(-1)[0];
-    const d = latest.stochRsi.d.slice(-1)[0];
-    if (k < 20) stochSignal = `✅ StochRSI Oversold (k:${k.toFixed(2)}, d:${d.toFixed(2)})`;
-    else if (k > 80) stochSignal = `❌ StochRSI Overbought (k:${k.toFixed(2)}, d:${d.toFixed(2)})`;
-    else stochSignal = `⚪ StochRSI (k:${k.toFixed(2)}, d:${d.toFixed(2)})`;
-  }
+  const stochSignal = latest.stoch
+    ? latest.stoch.k < 20
+      ? `✅ Oversold (k:${latest.stoch.k.toFixed(2)})`
+      : latest.stoch.k > 80
+      ? `❌ Overbought (k:${latest.stoch.k.toFixed(2)})`
+      : `⚪ Neutral (k:${latest.stoch.k.toFixed(2)})`
+    : "⚪ No StochRSI data";
 
-  // ADX
-  let adxSignal = "⚪ Neutral";
-  if (latest.adx) {
-    const adxValue = latest.adx.adx;
-    adxSignal = adxValue > 25 ? `✅ ADX ${adxValue.toFixed(2)} Strong Trend` : `❌ ADX ${adxValue.toFixed(2)} Weak Trend`;
-  }
-
-  // Volume EMA
-  const volumeSignal = latest.volume > latest.volumeEMA ? `✅ Volume Increasing` : `❌ Volume Decreasing`;
-
-  // ATR-based SL/TP
-  const atr = latest.atr ? latest.atr : 0;
-  sl = (close - atr).toFixed(3);
-  tp = (close + atr).toFixed(3);
-
-  // Trade signal logic
-  if (ema9 > ema21 && macdSignal.includes("✅") && latest.rsi > 55 && adxSignal.includes("✅")) tradeSignal = "LONG ✅";
-  else if (ema9 < ema21 && macdSignal.includes("❌") && latest.rsi < 55 && adxSignal.includes("❌")) tradeSignal = "SHORT ❌";
-  else tradeSignal = "NO CLEAR SIGNAL ⚠️";
+  const adxSignal =
+    latest.adx.adx > 25 ? `✅ ADX ${latest.adx.adx.toFixed(2)} Trend Strong` : `❌ ADX ${latest.adx.adx.toFixed(2)} Weak`;
 
   return {
-    close, tradeSignal, sl, tp, bollEmaSignal, priceBandSignal, macdSignal, rsiSignal, stochSignal, adxSignal, volumeSignal
+    close: latest.close,
+    sl: (latest.close - latest.atr).toFixed(3),
+    tp: (latest.close + latest.atr).toFixed(3),
+    bollSignal,
+    macdSignal,
+    rsiSignal,
+    stochSignal,
+    adxSignal
   };
 }
 
-// =================== FORMAT MESSAGE ===================
-function formatMessage(symbol, timeframe, signal) {
+function formatMsg(symbol, tf, s) {
   return `
-📊 ${symbol} — (${timeframe}) Technical Signal
+📊 ${symbol} — (${tf}) Technical Signal  
 ━━━━━━━━━━━━━━━━━━
-Trade Signal: ${signal.tradeSignal}
-Entry Price: ${signal.close}
-Stop Loss: ${signal.sl}
-Take Profit: ${signal.tp}
+Trade Signal: AUTO DETECTED
+Entry Price: ${s.close}
+Stop Loss: ${s.sl}
+Take Profit: ${s.tp}
 ━━━━━━━━━━━━━━━━━━
 | Indicator | Status | Comment |
 |-----------|--------|---------|
-| EMA + Bollinger | ${signal.bollEmaSignal} | EMA/Bollinger alignment |
-| Price vs Bands | ${signal.priceBandSignal} | Price touching bands |
-| MACD | ${signal.macdSignal} | Trend confirmation |
-| RSI 14 | ${signal.rsiSignal} | Momentum strength |
-| Stoch RSI | ${signal.stochSignal} | Overbought/Oversold |
-| ADX | ${signal.adxSignal} | Trend strength |
-| Volume EMA | ${signal.volumeSignal} | Volume confirmation |
+| EMA + Bollinger | ${s.bollSignal} | Trend Strength |
+| MACD | ${s.macdSignal} | Trend reversal |
+| RSI 14 | ${s.rsiSignal} | Momentum |
+| Stoch RSI | ${s.stochSignal} | Overbought/Oversold |
+| ADX | ${s.adxSignal} | Trend Quality |
 ━━━━━━━━━━━━━━━━━━
-📅 Date/Time: ${new Date().toLocaleString()}
+📅 ${new Date().toLocaleString()}
 ━━━━━━━━━━━━━━━━━━
 /BTC /ETH /LINK /DOT /SUI
 `;
 }
 
-// =================== TELEGRAM COMMANDS ===================
 bot.onText(/\/start/, msg => {
-  bot.sendMessage(msg.chat.id, `👋 Welcome to Crypto Signal Bot
-Use commands like:
-/eth5m
-/btc1h
-/link15m
-/dot5m
-/sui1h`);
+  bot.sendMessage(msg.chat.id, `Commands:
+/btc5m
+/eth15m
+/link1h`);
 });
 
 Object.keys(PAIRS).forEach(coin => {
-  Object.keys(INTERVAL_MAP).forEach(tf => {
-    const command = new RegExp(`/${coin.toLowerCase()}${tf}`, "i");
-    bot.onText(command, async msg => {
-      const symbol = PAIRS[coin];
-      const timeframe = tf;
-      bot.sendMessage(msg.chat.id, `🔄 Fetching signal for *${symbol} (${timeframe})* ...`);
-      const candles = await fetchCandles(symbol, INTERVAL_MAP[tf]);
-      if (!candles) {
-        bot.sendMessage(msg.chat.id, `⚠️ Failed to fetch data for ${symbol} (${timeframe})`);
-        return;
-      }
-      const signal = calculateSignal(candles);
-      const message = formatMessage(symbol, timeframe, signal);
-      bot.sendMessage(msg.chat.id, message, { parse_mode: "Markdown" });
+  Object.keys(TF).forEach(tf => {
+    bot.onText(new RegExp(`/${coin.toLowerCase()}${tf}`, "i"), async msg => {
+      bot.sendMessage(msg.chat.id, `🔄 Fetching signal for *${coin} (${tf})* ...`);
+      const candles = await fetchCandles(PAIRS[coin], TF[tf]);
+      if (!candles) return bot.sendMessage(msg.chat.id, `⚠️ Failed to fetch data`);
+      const s = calculateSignal(candles);
+      bot.sendMessage(msg.chat.id, formatMsg(coin, tf, s), { parse_mode: "Markdown" });
     });
   });
 });
