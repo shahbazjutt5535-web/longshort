@@ -51,10 +51,9 @@ app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
 // ===========================
 async function fetchCandles(symbol, interval = "1h") {
   const endpoints = [
-    `https://api.binance.com/api/v3/klines`,
-    `https://api1.binance.com/api/v3/klines`,
-    `https://api2.binance.com/api/v3/klines`,
-    `https://api-gcp.binance.com/api/v3/klines`
+    "https://api.binance.com/api/v3/klines",
+    "https://api1.binance.com/api/v3/klines",
+    "https://api-gcp.binance.com/api/v3/klines"
   ];
 
   for (let url of endpoints) {
@@ -77,10 +76,34 @@ async function fetchCandles(symbol, interval = "1h") {
     }
   }
 
-  console.log("🔴 All Binance endpoints failed.");
-  return null;
-}
+  console.log("🔴 All Binance endpoints failed. Trying CoinGecko fallback...");
 
+  // CoinGecko fallback (optional)
+  try {
+    const coinMap = {
+      BTCUSDT: "bitcoin",
+      ETHUSDT: "ethereum",
+      DOTUSDT: "polkadot",
+      LINKUSDT: "chainlink",
+      SUIUSDT: "sui"
+    };
+    const coinId = coinMap[symbol];
+    if (!coinId) return null;
+
+    const cgURL = `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=1`;
+    const { data } = await axios.get(cgURL, { timeout: 15000 });
+    return data.map(c => ({
+      open: c[1],
+      high: c[2],
+      low: c[3],
+      close: c[4],
+      volume: 0
+    }));
+  } catch (err) {
+    console.log("❌ CoinGecko fallback failed:", err.message);
+    return null;
+  }
+}
 // ===========================
 // CALCULATE SIGNAL
 // ===========================
