@@ -110,11 +110,11 @@ Commands: /eth5m /eth15m /eth1h /xrp5m /xrp15m /xrp1h
   return message;
 }
 
-bot.onText(/\/(BTC|ETH|LINK|DOT|SUI|XRP)/i, async (msg, match) => {
+bot.onText(/\/(BTC|ETH|LINK|DOT|SUI)(5m|15m|1h)?/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const symbol = match[1].toUpperCase();
-  const timeframe = '1h';
-  const signal = await calculateSignal(symbol,timeframe);
+  const timeframe = match[2] || '1h';  // Default to 1h if no timeframe provided
+  const signal = await calculateSignal(symbol, timeframe);
   bot.sendMessage(chatId, signal);
 });
 
