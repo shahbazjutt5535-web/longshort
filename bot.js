@@ -13,7 +13,7 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const PORT = process.env.PORT || 3000;
 const bot = new TelegramBot(TELEGRAM_TOKEN, {polling: true});
 
-const SYMBOLS = ['BTC','ETH','LINK','DOT','SUI'];
+const SYMBOLS = ['BTC','ETH','LINK','DOT','SUI','XRP'];
 const TIMEFRAMES = ['5m','15m','1h'];
 const LIMIT = 100;
 
@@ -104,13 +104,13 @@ TP2: ${tp2.toFixed(2)}
 
 🟢 ${lastEMA9>lastEMA21?'Long':'Short'} Bias
 
-Commands: /BTC /ETH /LINK /DOT /SUI
+Commands: /eth5m /eth15m /eth1h /xrp5m /xrp15m /xrp1h
 `;
 
   return message;
 }
 
-bot.onText(/\/(BTC|ETH|LINK|DOT|SUI)/i, async (msg, match) => {
+bot.onText(/\/(BTC|ETH|LINK|DOT|SUI|XRP)/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const symbol = match[1].toUpperCase();
   const timeframe = '1h';
