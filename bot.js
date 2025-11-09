@@ -28,29 +28,44 @@ app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
 // FETCH CANDLE DATA FROM BINANCE
 // ===========================
 async function fetchCandles(symbol, interval = "1h") {
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=120`;
+  const endpoints = [
+    `https://api.binance.com/api/v3/klines`,
+    `https://api-gcp.binance.com/api/v3/klines`,
+    `https://api1.binance.com/api/v3/klines`,
+    `https://api2.binance.com/api/v3/klines`
+  ];
 
-  try {
-    const { data } = await axios.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Crypto Telegram Bot)",
-        "Content-Type": "application/json"
-      },
-      timeout: 10000 // 10 seconds timeout
-    });
+  for (let url of endpoints) {
+    try {
+      const fullURL = `${url}?symbol=${symbol}&interval=${interval}&limit=150`;
 
-    return data.map((candle) => ({
-      open: parseFloat(candle[1]),
-      high: parseFloat(candle[2]),
-      low: parseFloat(candle[3]),
-      close: parseFloat(candle[4]),
-      volume: parseFloat(candle[5]),
-    }));
+      console.log("Fetching from:", fullURL);
 
-  } catch (err) {
-    console.log("🔴 Binance Fetch Error:", err.response?.status || err.message);
-    return null;
+      const { data } = await axios.get(fullURL, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 TelegramCryptoBot",
+          "Cache-Control": "no-cache",
+          "Accept": "application/json"
+        },
+        timeout: 15000
+      });
+
+      return data.map((candle) => ({
+        open: parseFloat(candle[1]),
+        high: parseFloat(candle[2]),
+        low: parseFloat(candle[3]),
+        close: parseFloat(candle[4]),
+        volume: parseFloat(candle[5])
+      }));
+
+    } catch (err) {
+      console.log("❌ Failed:", url);
+      continue; // try next URL
+    }
   }
+
+  console.log("🔴 No Binance endpoint worked.");
+  return null;
 }
 
 // ===========================
