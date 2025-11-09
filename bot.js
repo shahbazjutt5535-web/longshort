@@ -10,19 +10,21 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // ===========================
-// CONFIG
+// CONFIG: env vars fallback
 // ===========================
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const PORT = process.env.PORT || 3000;
-const WEBHOOK_URL = process.env.WEBHOOK_URL; // your Render public URL e.g. https://your-app.onrender.com/bot
 
-if (!WEBHOOK_URL) {
-  console.error("❌ Please set WEBHOOK_URL in .env");
+if (!TELEGRAM_TOKEN || !WEBHOOK_URL) {
+  console.error("❌ TELEGRAM_TOKEN or WEBHOOK_URL missing!");
+  console.log("TELEGRAM_TOKEN:", TELEGRAM_TOKEN ? "OK" : "MISSING");
+  console.log("WEBHOOK_URL:", WEBHOOK_URL ? "OK" : "MISSING");
   process.exit(1);
 }
 
 // ===========================
-// INIT BOT
+// INIT BOT IN WEBHOOK MODE
 // ===========================
 const bot = new TelegramBot(TELEGRAM_TOKEN);
 bot.setWebHook(`${WEBHOOK_URL}/bot${TELEGRAM_TOKEN}`);
@@ -33,6 +35,7 @@ bot.setWebHook(`${WEBHOOK_URL}/bot${TELEGRAM_TOKEN}`);
 const app = express();
 app.use(express.json());
 
+// Health check
 app.get("/", (req, res) => res.send("Crypto Bot Running ✅"));
 
 // Telegram webhook endpoint
@@ -44,14 +47,14 @@ app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
 app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
 
 // ===========================
-// BINANCE CANDLE FETCH FUNCTION
+// BINANCE PUBLIC API FETCH
 // ===========================
 async function fetchCandles(symbol, interval = "1h") {
   const endpoints = [
     `https://api.binance.com/api/v3/klines`,
-    `https://api-gcp.binance.com/api/v3/klines`,
     `https://api1.binance.com/api/v3/klines`,
     `https://api2.binance.com/api/v3/klines`,
+    `https://api-gcp.binance.com/api/v3/klines`
   ];
 
   for (let url of endpoints) {
@@ -59,32 +62,34 @@ async function fetchCandles(symbol, interval = "1h") {
       const fullURL = `${url}?symbol=${symbol}&interval=${interval}&limit=150`;
       const { data } = await axios.get(fullURL, {
         headers: { "User-Agent": "Mozilla/5.0 TelegramCryptoBot" },
-        timeout: 15000,
+        timeout: 15000
       });
-      return data.map((c) => ({
+      return data.map(c => ({
         open: parseFloat(c[1]),
         high: parseFloat(c[2]),
         low: parseFloat(c[3]),
         close: parseFloat(c[4]),
-        volume: parseFloat(c[5]),
+        volume: parseFloat(c[5])
       }));
     } catch (err) {
-      console.log("❌ Failed:", url, err.message);
-      continue;
+      console.log("❌ Binance fetch failed:", url, err.message);
+      continue; // try next endpoint
     }
   }
+
+  console.log("🔴 All Binance endpoints failed.");
   return null;
 }
 
 // ===========================
-// SIGNAL CALCULATION
+// CALCULATE SIGNAL
 // ===========================
 async function getSignal(symbol) {
   const candles = await fetchCandles(symbol);
   if (!candles) return "⚠️ Data fetch failed.";
 
-  const closes = candles.map((c) => c.close);
-  const volumes = candles.map((c) => c.volume);
+  const closes = candles.map(c => c.close);
+  const volumes = candles.map(c => c.volume);
 
   const EMA9 = ti.EMA.calculate({ period: 9, values: closes });
   const EMA21 = ti.EMA.calculate({ period: 21, values: closes });
@@ -105,10 +110,7 @@ async function getSignal(symbol) {
   const lastMACD = MACD.slice(-1)[0];
   const latestPrice = closes.slice(-1)[0];
 
-  let signal = "";
-  let direction = "";
-  let sl = "";
-  let tp = "";
+  let signal = "", direction = "", sl = "", tp = "";
 
   if (lastEMA9 > lastEMA21 && lastRSI > 50 && lastMACD.MACD > lastMACD.signal) {
     signal = "✅ **LONG SIGNAL**";
@@ -128,7 +130,7 @@ async function getSignal(symbol) {
 📊 *${symbol} — 1H Technical Signal*
 ━━━━━━━━━━━━━━━━━━
 ${signal}
-${direction && `➡️ Recommended: *${direction}*`}
+${direction ? `➡️ Recommended: *${direction}*` : ""}
 ━━━━━━━━━━━━━━━━━━
 💰 Price: ${latestPrice}
 9 EMA: ${lastEMA9}
@@ -149,7 +151,7 @@ OBV: ${OBV.slice(-1)[0]}
 }
 
 // ===========================
-// COMMAND LISTENER
+// TELEGRAM COMMANDS
 // ===========================
 const PAIRS = {
   BTC: "BTCUSDT",
@@ -159,22 +161,19 @@ const PAIRS = {
   SUI: "SUIUSDT",
 };
 
-bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(
-    msg.chat.id,
+bot.onText(/\/start/, msg => {
+  bot.sendMessage(msg.chat.id,
     `👋 Welcome to Crypto Signal Bot
-
 Use:
 /BTC
 /ETH
 /LINK
 /DOT
-/SUI`
-  );
+/SUI`);
 });
 
-Object.keys(PAIRS).forEach((cmd) => {
-  bot.onText(new RegExp(`/${cmd}`, "i"), async (msg) => {
+Object.keys(PAIRS).forEach(cmd => {
+  bot.onText(new RegExp(`/${cmd}`, "i"), async msg => {
     const symbol = PAIRS[cmd];
     bot.sendMessage(msg.chat.id, `🔄 Fetching signal for *${symbol}* ...`);
     const result = await getSignal(symbol);
