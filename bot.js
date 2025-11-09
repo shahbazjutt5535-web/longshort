@@ -1,155 +1,206 @@
-import TelegramBot from "node-telegram-bot-api";
-import axios from "axios";
-import * as ti from "technicalindicators";
 import dotenv from "dotenv";
+import axios from "axios";
+import { Telegraf } from "telegraf";
+import express from "express";
+import {
+  EMA, RSI, MACD, BollingerBands, StochasticRSI, ADX, ATR, OBV
+} from "technicalindicators";
 
 dotenv.config();
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-if (!TELEGRAM_TOKEN) {
-  console.error("❌ TELEGRAM_TOKEN missing in .env");
-  process.exit(1);
-}
+const bot = new Telegraf(process.env.TELEGRAM_TOKEN);
+const app = express();
+app.use(express.json());
 
-// ✅ POLLING MODE (NO PORT REQUIRED)
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+const PORT = process.env.PORT || 3000;
 
-const PAIRS = { BTC: "BTC", ETH: "ETH", DOT: "DOT", LINK: "LINK", SUI: "SUI" };
-const TF = { "5m": 5, "15m": 15, "1h": 60 };
-
-async function fetchCandles(symbol, timeframe) {
+// ✅ Fetch candles from CryptoCompare OPEN API
+async function fetchData(symbol, timeframe) {
   try {
-    const url = timeframe === 60
-      ? `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${symbol}&tsym=USDT&limit=150`
-      : `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USDT&limit=150&aggregate=${timeframe}`;
+    const limit = timeframe === 60 ? 200 : 200;
+    let url;
+
+    if (timeframe === 60) {
+      url = `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${symbol}&tsym=USDT&limit=${limit}`;
+    } else {
+      url = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USDT&limit=${limit}&aggregate=${timeframe}`;
+    }
 
     const { data } = await axios.get(url);
-    if (data.Response !== "Success") return null;
+
+    if (!data?.Data?.Data) return null;
 
     return data.Data.Data.map(c => ({
+      time: c.time,
       open: c.open,
       high: c.high,
       low: c.low,
       close: c.close,
-      volume: c.volumeto
+      volume: c.volumefrom,
     }));
-  } catch (error) {
-    console.log("❌ Fetch failed:", error.message);
+  } catch (err) {
     return null;
   }
 }
 
-function calculateSignal(candles) {
-  const closes = candles.map(x => x.close);
-  const highs = candles.map(x => x.high);
-  const lows = candles.map(x => x.low);
-  const volumes = candles.map(x => x.volume);
+function analyze(data) {
+  const closes = data.map(x => x.close);
+  const highs = data.map(x => x.high);
+  const lows = data.map(x => x.low);
+  const volumes = data.map(x => x.volume);
 
-  const EMA9 = ti.EMA.calculate({ period: 9, values: closes });
-  const EMA21 = ti.EMA.calculate({ period: 21, values: closes });
-  const BB = ti.BollingerBands.calculate({ period: 20, stdDev: 2, values: closes });
-  const MACD = ti.MACD.calculate({ values: closes, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 });
-  const RSI14 = ti.RSI.calculate({ period: 14, values: closes });
-  const OBV = ti.OBV.calculate({ close: closes, volume: volumes });
-  const ADX = ti.ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
-  const ATR = ti.ATR.calculate({ high: highs, low: lows, close: closes, period: 14 });
+  const ema9 = EMA.calculate({ period: 9, values: closes });
+  const ema21 = EMA.calculate({ period: 21, values: closes });
 
-  // ✅ FIXED StochRSI
-  const StochRSI = ti.StochasticRSI.calculate({
+  const macd = MACD.calculate({
+    fastPeriod: 12,
+    slowPeriod: 26,
+    signalPeriod: 9,
+    values: closes,
+  });
+
+  const rsi = RSI.calculate({ period: 14, values: closes });
+
+  const sma9_rsi = EMA.calculate({ period: 9, values: rsi });
+
+  const bb = BollingerBands.calculate({
+    period: 20,
+    values: closes,
+    stdDev: 2,
+  });
+
+  const stochRsi = StochasticRSI.calculate({
     values: closes,
     rsiPeriod: 14,
     stochasticPeriod: 14,
     kPeriod: 3,
-    dPeriod: 3
+    dPeriod: 3,
   });
 
-  const lastStoch = StochRSI.slice(-1)[0] || null;
+  const obv = OBV.calculate({ close: closes, volume: volumes });
 
-  const latest = {
-    close: closes.at(-1),
-    ema9: EMA9.at(-1),
-    ema21: EMA21.at(-1),
-    bb: BB.at(-1),
-    macd: MACD.at(-1),
-    rsi: RSI14.at(-1),
-    stoch: lastStoch,
-    obv: OBV.at(-1),
-    adx: ADX.at(-1),
-    atr: ATR.at(-1),
-    volume: volumes.at(-1)
+  const adx = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
+
+  const atr = ATR.calculate({ high: highs, low: lows, close: closes, period: 14 });
+
+  let last = {
+    ema9: ema9.slice(-1)[0],
+    ema21: ema21.slice(-1)[0],
+    macd: macd.slice(-1)[0],
+    rsi: rsi.slice(-1)[0],
+    sma9_rsi: sma9_rsi.slice(-1)[0],
+    bb: bb.slice(-1)[0],
+    atr: atr.slice(-1)[0],
+    adx: adx.slice(-1)[0],
+    stochRsi: stochRsi.slice(-1)[0],
+    obv: obv.slice(-1)[0],
+    price: closes.slice(-1)[0],
   };
 
-  const bollSignal =
-    latest.ema9 > latest.bb.middle && latest.ema21 > latest.bb.middle
-      ? `✅✅ Strong Bullish`
-      : latest.ema9 > latest.bb.middle
-      ? `✅ Small Bullish`
-      : `❌ Bearish Below Middle Band`;
-
-  const macdSignal = latest.macd.MACD > latest.macd.signal ? "✅ Bullish crossover" : "❌ Bearish crossover";
-  const rsiSignal = latest.rsi >= 55 ? `✅ RSI ${latest.rsi.toFixed(2)}` : `❌ RSI ${latest.rsi.toFixed(2)}`;
-
-  const stochSignal = latest.stoch
-    ? latest.stoch.k < 20
-      ? `✅ Oversold (k:${latest.stoch.k.toFixed(2)})`
-      : latest.stoch.k > 80
-      ? `❌ Overbought (k:${latest.stoch.k.toFixed(2)})`
-      : `⚪ Neutral (k:${latest.stoch.k.toFixed(2)})`
-    : "⚪ No StochRSI data";
-
-  const adxSignal =
-    latest.adx.adx > 25 ? `✅ ADX ${latest.adx.adx.toFixed(2)} Trend Strong` : `❌ ADX ${latest.adx.adx.toFixed(2)} Weak`;
-
-  return {
-    close: latest.close,
-    sl: (latest.close - latest.atr).toFixed(3),
-    tp: (latest.close + latest.atr).toFixed(3),
-    bollSignal,
-    macdSignal,
-    rsiSignal,
-    stochSignal,
-    adxSignal
-  };
+  return last;
 }
 
-function formatMsg(symbol, tf, s) {
+function formatSignal(symbol, tfLabel, x) {
+  const bullish = "✅";
+  const bearish = "❌";
+
+  const emaTrend =
+    x.ema9 > x.ema21
+      ? `${bullish} EMA9 above EMA21 (Bullish)`
+      : `${bearish} EMA9 below EMA21 (Bearish)`;
+
+  const macdTrend =
+    x.macd.MACD > x.macd.signal
+      ? `${bullish} MACD Bullish Crossover`
+      : `${bearish} MACD Bearish Crossover`;
+
+  const rsiSignal =
+    x.rsi > x.sma9_rsi
+      ? `${bullish} RSI above SMA9 (${x.rsi.toFixed(2)})`
+      : `${bearish} RSI below SMA9 (${x.rsi.toFixed(2)})`;
+
+  const bollingerSignal =
+    x.price < x.bb.lower
+      ? `${bullish} Price touching LOWER band (Long setup)`
+      : x.price > x.bb.upper
+      ? `${bearish} Price touching UPPER band (Short setup)`
+      : `➖ Inside Bollinger Bands`;
+
+  const adxSignal =
+    x.adx.adx > 25
+      ? `${bullish} ADX Strong Trend (${x.adx.adx.toFixed(1)})`
+      : `${bearish} ADX Weak Trend (${x.adx.adx.toFixed(1)})`;
+
+  const obvSignal =
+    x.obv > x.obv - 5 ? `${bullish} Volume Increasing` : `${bearish} Weak Volume`;
+
+  const sl = (x.price - x.atr * 1.5).toFixed(2);
+  const tp = (x.price + x.atr * 2).toFixed(2);
+
   return `
-📊 ${symbol} — (${tf}) Technical Signal  
+📊 *${symbol} — ${tfLabel} Technical Signal*
 ━━━━━━━━━━━━━━━━━━
-Trade Signal: AUTO DETECTED
-Entry Price: ${s.close}
-Stop Loss: ${s.sl}
-Take Profit: ${s.tp}
+Entry Price: *${x.price}*
+Stop Loss: *${sl}*
+Take Profit: *${tp}*
 ━━━━━━━━━━━━━━━━━━
-| Indicator | Status | Comment |
-|-----------|--------|---------|
-| EMA + Bollinger | ${s.bollSignal} | Trend Strength |
-| MACD | ${s.macdSignal} | Trend reversal |
-| RSI 14 | ${s.rsiSignal} | Momentum |
-| Stoch RSI | ${s.stochSignal} | Overbought/Oversold |
-| ADX | ${s.adxSignal} | Trend Quality |
+| Indicator      | Status |
+|----------------|--------|
+| EMA 9/21       | ${emaTrend} |
+| MACD           | ${macdTrend} |
+| RSI + SMA9     | ${rsiSignal} |
+| Bollinger      | ${bollingerSignal} |
+| ADX            | ${adxSignal} |
+| OBV / Volume   | ${obvSignal} |
 ━━━━━━━━━━━━━━━━━━
-📅 ${new Date().toLocaleString()}
+📅 Time: ${new Date().toLocaleString()}
 ━━━━━━━━━━━━━━━━━━
 /BTC /ETH /LINK /DOT /SUI
 `;
 }
 
-bot.onText(/\/start/, msg => {
-  bot.sendMessage(msg.chat.id, `Commands:
-/btc5m
-/eth15m
-/link1h`);
+// ✅ Telegram Commands Mapping
+const coins = {
+  "/btc1h": { symbol: "BTC", tf: 60, label: "1 Hour" },
+  "/eth1h": { symbol: "ETH", tf: 60, label: "1 Hour" },
+  "/dot1h": { symbol: "DOT", tf: 60, label: "1 Hour" },
+  "/link1h": { symbol: "LINK", tf: 60, label: "1 Hour" },
+  "/sui1h": { symbol: "SUI", tf: 60, label: "1 Hour" },
+
+  "/btc5m": { symbol: "BTC", tf: 5, label: "5 Min" },
+  "/eth5m": { symbol: "ETH", tf: 5, label: "5 Min" },
+  "/dot5m": { symbol: "DOT", tf: 5, label: "5 Min" },
+  "/link5m": { symbol: "LINK", tf: 5, label: "5 Min" },
+  "/sui5m": { symbol: "SUI", tf: 5, label: "5 Min" },
+
+  "/btc15m": { symbol: "BTC", tf: 15, label: "15 Min" },
+  "/eth15m": { symbol: "ETH", tf: 15, label: "15 Min" },
+  "/dot15m": { symbol: "DOT", tf: 15, label: "15 Min" },
+  "/link15m": { symbol: "LINK", tf: 15, label: "15 Min" },
+  "/sui15m": { symbol: "SUI", tf: 15, label: "15 Min" },
+};
+
+bot.on("text", async (ctx) => {
+  const cmd = ctx.message.text.toLowerCase();
+
+  if (!coins[cmd]) return;
+
+  const { symbol, tf, label } = coins[cmd];
+
+  ctx.reply(`⏳ Fetching signal for *${symbol}* (${label}) ...`);
+
+  const candles = await fetchData(symbol, tf);
+  if (!candles) return ctx.reply("❌ Failed to fetch data.");
+
+  const analysis = analyze(candles);
+  const result = formatSignal(symbol, label, analysis);
+
+  ctx.reply(result, { parse_mode: "Markdown" });
 });
 
-Object.keys(PAIRS).forEach(coin => {
-  Object.keys(TF).forEach(tf => {
-    bot.onText(new RegExp(`/${coin.toLowerCase()}${tf}`, "i"), async msg => {
-      bot.sendMessage(msg.chat.id, `🔄 Fetching signal for *${coin} (${tf})* ...`);
-      const candles = await fetchCandles(PAIRS[coin], TF[tf]);
-      if (!candles) return bot.sendMessage(msg.chat.id, `⚠️ Failed to fetch data`);
-      const s = calculateSignal(candles);
-      bot.sendMessage(msg.chat.id, formatMsg(coin, tf, s), { parse_mode: "Markdown" });
-    });
-  });
-});
+// ✅ Required by Render: Start Express server
+app.get("/", (req, res) => res.send("✅ Bot is running"));
+app.listen(PORT, () => console.log(`✅ Server running on ${PORT}`));
+
+// ✅ Activate Telegram Webhook
+bot.launch();
