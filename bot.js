@@ -31,34 +31,34 @@ app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
 app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
 
 // =================== BINANCE FETCH ===================
-async function fetchCandles(symbol, interval = "1h", limit = 150) {
-  const endpoints = [
-    "https://api.binance.com/api/v3/klines",
-    "https://api1.binance.com/api/v3/klines",
-    "https://api-gcp.binance.com/api/v3/klines"
-  ];
+async function fetchCandles(symbol) {
+  try {
+    // symbol mapping for CryptoCompare
+    const map = {
+      BTCUSDT: "BTC",
+      ETHUSDT: "ETH",
+      DOTUSDT: "DOT",
+      LINKUSDT: "LINK",
+      SUIUSDT: "SUI"
+    };
+    const crypto = map[symbol];
+    if (!crypto) return null;
 
-  for (let url of endpoints) {
-    try {
-      const fullURL = `${url}?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-      const { data } = await axios.get(fullURL, {
-        headers: { "User-Agent": "Mozilla/5.0 TelegramCryptoBot" },
-        timeout: 15000
-      });
-      return data.map(c => ({
-        open: parseFloat(c[1]),
-        high: parseFloat(c[2]),
-        low: parseFloat(c[3]),
-        close: parseFloat(c[4]),
-        volume: parseFloat(c[5]),
-      }));
-    } catch (err) {
-      console.log("❌ Binance fetch failed:", url, err.message);
-      continue;
-    }
+    const url = `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${crypto}&tsym=USDT&limit=100`;
+    const { data } = await axios.get(url);
+    if (data.Response !== "Success") return null;
+
+    return data.Data.Data.map(c => ({
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volumeto
+    }));
+  } catch (err) {
+    console.log("❌ CryptoCompare fetch failed:", err.message);
+    return null;
   }
-  console.log("🔴 All Binance endpoints failed.");
-  return null;
 }
 
 // =================== SIGNAL CALCULATION ===================
