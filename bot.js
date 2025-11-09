@@ -1,4 +1,4 @@
-// ✅ bot.js (Full Updated Version with Telegram commands /BTC /ETH /LINK /DOT /SUI)
+// ✅ Fresh bot.js with same day high/low Fibonacci, EMA 9/21 + Bollinger, MACD, RSI/SMA, ADX, Volume, Mobile-friendly
 
 import axios from 'axios';
 import express from 'express';
@@ -78,8 +78,9 @@ async function calculateSignal(symbol,timeframe){
   const tp1 = entry + lastATR*1.5;
   const tp2 = entry + lastATR*3;
 
-  const fibHigh = Math.max(...highs);
-  const fibLow = Math.min(...lows);
+  // Fibonacci based on same day high/low
+  const dayHigh = Math.max(...highs);
+  const dayLow = Math.min(...lows);
 
   const message = `
 ${symbol.toUpperCase()} (${timeframe.toUpperCase()}) 🚨 ${lastEMA9>lastEMA21?'LONG':'SHORT'} SIGNAL
@@ -91,9 +92,10 @@ Price: ${lastPrice.toFixed(2)}
 EMA 9/21 Crossover: ${emaCrossSignal}
 EMA 9 & 21 vs Middle Bollinger: ${emaBBSignal}
 
-Bollinger Bands: Price at ${lastPrice>lastBB.upper?'Upper':'Lower'} band
+Bollinger Bands: Price at ${lastPrice>lastBB.upper?'Upper':'Lower'} band ${lastPrice>lastBB.upper?'(might be price drop now)':'(might be now price go up)'}
 MACD: ${macd[macd.length-1].histogram>0?'✅ Bullish':'❌ Bearish'}
-${rsiSignal}
+RSI:
+RSI+SMA: ${rsiSignal}
 ADX: ${adxSignal}
 Volume: ${volSignal}
 
@@ -103,9 +105,9 @@ TP1: ${tp1.toFixed(2)}
 TP2: ${tp2.toFixed(2)}
 
 🔶 Fibonacci Levels (1D high/low based)
-0.786 → ${(fibHigh - (fibHigh-fibLow)*0.786).toFixed(2)}
-0.618 → ${(fibHigh - (fibHigh-fibLow)*0.618).toFixed(2)}
-0.382 → ${(fibHigh - (fibHigh-fibLow)*0.382).toFixed(2)}
+0.786 → ${(dayHigh - (dayHigh-dayLow)*0.786).toFixed(2)}
+0.618 → ${(dayHigh - (dayHigh-dayLow)*0.618).toFixed(2)}
+0.382 → ${(dayHigh - (dayHigh-dayLow)*0.382).toFixed(2)}
 
 🟢 ${lastEMA9>lastEMA21?'Long':'Short'} Bias
 
@@ -118,7 +120,7 @@ Commands: /BTC /ETH /LINK /DOT /SUI
 bot.onText(/\/(BTC|ETH|LINK|DOT|SUI)/i, async (msg, match) => {
   const chatId = msg.chat.id;
   const symbol = match[1].toUpperCase();
-  const timeframe = '1h'; // default 1 hour for command
+  const timeframe = '1h';
   const signal = await calculateSignal(symbol,timeframe);
   bot.sendMessage(chatId, signal);
 });
