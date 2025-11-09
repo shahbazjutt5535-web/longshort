@@ -95,17 +95,13 @@ RSI: ${lastRSI.toFixed(2)}
 RSI+SMA: ${rsiSignal}
 ADX: ${adxSignal}
 Volume: ${volSignal}
-Price: ${lastPrice.toFixed(2)}
 
+Price: ${lastPrice.toFixed(2)}
 🎯 Entry Zone: ${entry.toFixed(2)}
 SL (ATR-based): ${sl.toFixed(2)}
 TP1: ${tp1.toFixed(2)}
 TP2: ${tp2.toFixed(2)}
 
-🔶 Fibonacci Levels (same-day high/low based)
-0.786 → ${(dayHigh - (dayHigh-dayLow)*0.786).toFixed(2)}
-0.618 → ${(dayHigh - (dayHigh-dayLow)*0.618).toFixed(2)}
-0.382 → ${(dayHigh - (dayHigh-dayLow)*0.382).toFixed(2)}
 
 🟢 ${lastEMA9>lastEMA21?'Long':'Short'} Bias
 
