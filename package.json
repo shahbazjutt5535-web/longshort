@@ -1,0 +1,28 @@
+{
+  "name": "crypto-telegram-trading-bot",
+  "version": "1.0.0",
+  "description": "Crypto telegram bot that generates trading signals using Binance public API (EMA, RSI, MACD, OBV, Fibonacci)",
+  "main": "bot.js",
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --watch bot.js"
+  },
+  "keywords": [
+    "crypto",
+    "trading",
+    "telegram",
+    "binance",
+    "bot",
+    "signals"
+  ],
+  "author": "ChatGPT",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.2",
+    "node-telegram-bot-api": "^0.61.0",
+    "technicalindicators": "^3.0.12"
+  }
+}
