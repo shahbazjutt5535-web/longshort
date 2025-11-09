@@ -109,7 +109,7 @@ function calculateSignal(candles) {
   const emaSignal = lastEMA9 > lastEMA21 ? "✅ Bullish" : "❌ Bearish";
   const macdSignal = lastMACD.MACD > lastMACD.signal ? "✅ Bullish crossover" : "❌ Bearish crossover";
   const volObvSignal = OBV[OBV.length-1] > OBV[OBV.length-2] ? "✅ Increasing" : "❌ Decreasing";
-  const rsiSignal = lastRSI >= 55 && lastRSI <= 57 ? `✅ RSI ${lastRSI.toFixed(2)}` : `❌ RSI ${lastRSI.toFixed(2)}`;
+  const rsiSignal = lastRSI >= 55 ? `✅ RSI ${lastRSI.toFixed(2)}` : `❌ RSI ${lastRSI.toFixed(2)}`;
 
   let tradeSignal = "";
   let sl = "", tp = "";
