@@ -49,7 +49,14 @@ const INTERVAL_MAP = {
 async function fetchCandles(symbol, timeframe) {
   try {
     const limit = 100;
-    const url = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USDT&limit=${limit}&aggregate=${timeframe}`;
+    let url = "";
+
+    if (timeframe === 60) { // 1 hour
+      url = `https://min-api.cryptocompare.com/data/v2/histohour?fsym=${symbol}&tsym=USDT&limit=${limit}`;
+    } else { // 5min, 15min
+      url = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USDT&limit=${limit}&aggregate=${timeframe}`;
+    }
+
     const { data } = await axios.get(url);
     if (data.Response !== "Success") return null;
 
@@ -65,7 +72,6 @@ async function fetchCandles(symbol, timeframe) {
     return null;
   }
 }
-
 // =================== SIGNAL CALCULATION ===================
 function calculateSignal(candles) {
   const closes = candles.map(c => c.close);
