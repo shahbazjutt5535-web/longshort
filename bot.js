@@ -28,10 +28,17 @@ app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
 // FETCH CANDLE DATA FROM BINANCE
 // ===========================
 async function fetchCandles(symbol, interval = "1h") {
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=100`;
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=120`;
 
   try {
-    const { data } = await axios.get(url);
+    const { data } = await axios.get(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Crypto Telegram Bot)",
+        "Content-Type": "application/json"
+      },
+      timeout: 10000 // 10 seconds timeout
+    });
+
     return data.map((candle) => ({
       open: parseFloat(candle[1]),
       high: parseFloat(candle[2]),
@@ -39,8 +46,9 @@ async function fetchCandles(symbol, interval = "1h") {
       close: parseFloat(candle[4]),
       volume: parseFloat(candle[5]),
     }));
+
   } catch (err) {
-    console.error("Error fetching candle data:", err.message);
+    console.log("🔴 Binance Fetch Error:", err.response?.status || err.message);
     return null;
   }
 }
