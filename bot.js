@@ -1,5 +1,5 @@
 // ===========================
-// IMPORT REQUIRED MODULES
+// IMPORT MODULES
 // ===========================
 import express from "express";
 import TelegramBot from "node-telegram-bot-api";
@@ -10,70 +10,77 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // ===========================
-// BOT + SERVER SETUP
+// CONFIG
 // ===========================
-const TOKEN = process.env.TELEGRAM_TOKEN;
-const bot = new TelegramBot(TOKEN, { polling: true });
-
-const app = express();
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const PORT = process.env.PORT || 3000;
+const WEBHOOK_URL = process.env.WEBHOOK_URL; // your Render public URL e.g. https://your-app.onrender.com/bot
 
-app.get("/", (req, res) => {
-  res.send("Crypto Bot Running ✅");
+if (!WEBHOOK_URL) {
+  console.error("❌ Please set WEBHOOK_URL in .env");
+  process.exit(1);
+}
+
+// ===========================
+// INIT BOT
+// ===========================
+const bot = new TelegramBot(TELEGRAM_TOKEN);
+bot.setWebHook(`${WEBHOOK_URL}/bot${TELEGRAM_TOKEN}`);
+
+// ===========================
+// EXPRESS SERVER
+// ===========================
+const app = express();
+app.use(express.json());
+
+app.get("/", (req, res) => res.send("Crypto Bot Running ✅"));
+
+// Telegram webhook endpoint
+app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
 
 app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
 
 // ===========================
-// FETCH CANDLE DATA FROM BINANCE
+// BINANCE CANDLE FETCH FUNCTION
 // ===========================
 async function fetchCandles(symbol, interval = "1h") {
   const endpoints = [
     `https://api.binance.com/api/v3/klines`,
     `https://api-gcp.binance.com/api/v3/klines`,
     `https://api1.binance.com/api/v3/klines`,
-    `https://api2.binance.com/api/v3/klines`
+    `https://api2.binance.com/api/v3/klines`,
   ];
 
   for (let url of endpoints) {
     try {
       const fullURL = `${url}?symbol=${symbol}&interval=${interval}&limit=150`;
-
-      console.log("Fetching from:", fullURL);
-
       const { data } = await axios.get(fullURL, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 TelegramCryptoBot",
-          "Cache-Control": "no-cache",
-          "Accept": "application/json"
-        },
-        timeout: 15000
+        headers: { "User-Agent": "Mozilla/5.0 TelegramCryptoBot" },
+        timeout: 15000,
       });
-
-      return data.map((candle) => ({
-        open: parseFloat(candle[1]),
-        high: parseFloat(candle[2]),
-        low: parseFloat(candle[3]),
-        close: parseFloat(candle[4]),
-        volume: parseFloat(candle[5])
+      return data.map((c) => ({
+        open: parseFloat(c[1]),
+        high: parseFloat(c[2]),
+        low: parseFloat(c[3]),
+        close: parseFloat(c[4]),
+        volume: parseFloat(c[5]),
       }));
-
     } catch (err) {
-      console.log("❌ Failed:", url);
-      continue; // try next URL
+      console.log("❌ Failed:", url, err.message);
+      continue;
     }
   }
-
-  console.log("🔴 No Binance endpoint worked.");
   return null;
 }
 
 // ===========================
-// INDICATOR CALCULATION
+// SIGNAL CALCULATION
 // ===========================
 async function getSignal(symbol) {
   const candles = await fetchCandles(symbol);
-
   if (!candles) return "⚠️ Data fetch failed.";
 
   const closes = candles.map((c) => c.close);
@@ -96,12 +103,8 @@ async function getSignal(symbol) {
   const lastEMA21 = EMA21.slice(-1)[0];
   const lastRSI = RSI.slice(-1)[0];
   const lastMACD = MACD.slice(-1)[0];
-
   const latestPrice = closes.slice(-1)[0];
 
-  // ===========================
-  // ✅ SIGNAL LOGIC
-  // ===========================
   let signal = "";
   let direction = "";
   let sl = "";
@@ -127,7 +130,7 @@ async function getSignal(symbol) {
 ${signal}
 ${direction && `➡️ Recommended: *${direction}*`}
 ━━━━━━━━━━━━━━━━━━
-💰 *Price:* ${latestPrice}
+💰 Price: ${latestPrice}
 9 EMA: ${lastEMA9}
 21 EMA: ${lastEMA21}
 RSI (14): ${lastRSI}
@@ -135,8 +138,8 @@ MACD: ${lastMACD.MACD.toFixed(4)}
 Signal: ${lastMACD.signal.toFixed(4)}
 OBV: ${OBV.slice(-1)[0]}
 
-🎯 *Take Profit:* ${tp}
-🛑 *Stop Loss:* ${sl}
+🎯 Take Profit: ${tp}
+🛑 Stop Loss: ${sl}
 
 ⏱️ Timeframe: 1H
 ✅ Accuracy est.: 80–90%
@@ -146,23 +149,8 @@ OBV: ${OBV.slice(-1)[0]}
 }
 
 // ===========================
-// TELEGRAM COMMAND LISTENER
+// COMMAND LISTENER
 // ===========================
-bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(
-    msg.chat.id,
-    `👋 Welcome to Crypto Signal Bot
-
-Use:
- /BTC
- /ETH
- /LINK
- /DOT
- /SUI`
-  );
-});
-
-// coin commands
 const PAIRS = {
   BTC: "BTCUSDT",
   ETH: "ETHUSDT",
@@ -170,6 +158,20 @@ const PAIRS = {
   LINK: "LINKUSDT",
   SUI: "SUIUSDT",
 };
+
+bot.onText(/\/start/, (msg) => {
+  bot.sendMessage(
+    msg.chat.id,
+    `👋 Welcome to Crypto Signal Bot
+
+Use:
+/BTC
+/ETH
+/LINK
+/DOT
+/SUI`
+  );
+});
 
 Object.keys(PAIRS).forEach((cmd) => {
   bot.onText(new RegExp(`/${cmd}`, "i"), async (msg) => {
