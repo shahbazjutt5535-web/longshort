@@ -1,16 +1,17 @@
 {
-  "name": "crypto-telegram-signals",
+  "name": "crypto-telegram-trading-bot",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Crypto Telegram Bot with EMA, Bollinger, MACD, RSI/SMA, ADX, ATR and Fibonacci levels",
   "main": "bot.js",
+  "type": "module",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "axios": "^1.6.7",
-    "dotenv": "^16.4.1",
-    "telegraf": "^4.12.3",
-    "technicalindicators": "^3.1.0",
-    "express": "^4.18.2"
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "technicalindicators": "^3.1.2",
+    "node-telegram-bot-api": "^0.61.0"
   }
 }
