@@ -29,6 +29,11 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 const app = express();
 app.use(express.json());
 
+// ✅ Add a simple GET route for browser access
+app.get("/", (req, res) => {
+  res.send("🚀 Bot server is running!");
+});
+
 // Token mapping
 const SYMBOLS = {
   eth: process.env.ETH_SYMBOL || "ETH",
