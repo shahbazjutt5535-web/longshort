@@ -38,7 +38,6 @@ async function fetchKlines(symbol, timeframe, limit = 200) {
     url = `https://min-api.cryptocompare.com/data/v2/histominute?fsym=${symbol}&tsym=USDT&limit=${limit}&aggregate=${aggr}`;
   }
   const res = await axios.get(url, { timeout: 10000 });
-  // CryptoCompare returns { Data: { Data: [...] } }
   return res.data.Data.Data.map((row) => ({
     openTime: row.time * 1000,
     open: parseFloat(row.open),
@@ -54,7 +53,6 @@ function last(arr, n = 1) {
   return arr[arr.length - n];
 }
 
-// Safe last value
 function safeLast(arr) {
   if (!Array.isArray(arr) || arr.length === 0) return null;
   return arr[arr.length - 1];
@@ -136,8 +134,12 @@ async function computeSignal(symbol, timeframe) {
   const rsiArr = RSI.calculate({ period: 14, values: closes });
   const rsiVal = +(safeLast(rsiArr) || 0).toFixed(2);
   const rsiSmaVal = +(safeLast(SMA.calculate({ period: 5, values: rsiArr.length ? rsiArr : [rsiVal] })) || 0).toFixed(2);
-  const obv = safeLast(OBV.calculate({ close: closes, volume: volumes })) || 0;
 
+  // OBV
+  const obvArr = OBV.calculate({ close: closes, volume: volumes });
+  const obv = safeLast(obvArr) || 0;
+
+  // ADX
   let adxVal = null;
   try {
     const adxArr = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
@@ -149,6 +151,7 @@ async function computeSignal(symbol, timeframe) {
 
   const atr = +(safeLast(ATR.calculate({ high: highs, low: lows, close: closes, period: 14 })) || 0).toFixed(6);
 
+  // Stoch RSI
   const stochLen = 14;
   const rsiSlice = rsiArr.slice(-stochLen);
   const rsiLow = Math.min(...(rsiSlice.length ? rsiSlice : [rsiVal]));
@@ -158,11 +161,10 @@ async function computeSignal(symbol, timeframe) {
   const stochD = +(stochRaw).toFixed(4);
 
   const volumeRising = volumes[volumes.length - 1] > volumes[volumes.length - 2];
-  const obvRising = obvArr && obvArr.length >= 2 ? obv > obvArr[obvArr.length - 2] : true;
+  const obvRising = obvArr.length >= 2 ? obv > obvArr[obvArr.length - 2] : true;
 
   const fib = fibLevels(highs, lows, Math.min(200, closes.length));
 
-  // Signals
   const macdText = macd.histogram > 0 ? `MACD: Bullish ✅` : `MACD: Bearish ❌`;
   let rsiSignal = rsiVal > 76 ? "OVERBOUGHT 🔥" : rsiVal > 70 ? "Extreme Strong ✅✅" : rsiVal > 55 ? "Bullish ✅" : rsiVal < 50 ? "Bearish ❌" : "Neutral";
   const rsiSmaText = rsiVal > rsiSmaVal ? "RSI > SMA5 ✅" : "RSI < SMA5 ❌";
@@ -172,7 +174,6 @@ async function computeSignal(symbol, timeframe) {
   const stochTrendText = stochK > 0.5 ? "Uptrend ✅" : stochK < 0.5 ? "Downtrend ❌" : "Weak";
 
   const bollMsg = price >= bb.upper ? "Near Upper BB ❌" : price <= bb.lower ? "Near Lower BB ✅" : "Near Middle BB";
-
   const priceVsEmaText = price > ema9 ? "Price > EMA9 ✅" : "Price < EMA9 ❌";
   const emaVsBBText = ema9 > bb.middle ? "EMA above BB mid ✅" : "EMA below BB mid ❌";
   const emaCrossText = ema9 > ema21 ? "EMA9 > EMA21 ✅" : "EMA9 < EMA21 ❌";
