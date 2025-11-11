@@ -1,4 +1,5 @@
 // bot.js
+// ES module style
 import axios from "axios";
 import express from "express";
 import dotenv from "dotenv";
@@ -72,47 +73,53 @@ function fibLevels(highs, lows, lookback = 100) {
   };
 }
 
-// EMA Crossover per timeframe
-function getEmaCrossoverSignal(closes, timeframe, bbMid) {
-  const ema9 = safeLast(EMA.calculate({ period: 9, values: closes }));
-  const ema21 = safeLast(EMA.calculate({ period: 21, values: closes }));
-  const ema50 = safeLast(EMA.calculate({ period: 50, values: closes }));
-  const ema200 = safeLast(EMA.calculate({ period: 200, values: closes }));
-
-  let emaCrossText = "";
-  let trendText = "";
-  let emaVsBBText = "";
-
-  // EMA vs Middle Bollinger
-  if (ema9 > bbMid && ema21 > bbMid) emaVsBBText = "EMA9 & EMA21 above BB mid ✅✅ Strong Bullish";
-  else if (ema9 > bbMid && ema21 < bbMid) emaVsBBText = "EMA9 above BB mid & EMA21 below BB mid ✅ Small Bullish";
-
-  // EMA Crossover logic per timeframe
-  if (timeframe === "5m") {
-    if (ema9 > ema21) { emaCrossText = "EMA9 > EMA21 ✅"; trendText = "Bullish 🚨"; }
-    else { emaCrossText = "EMA9 < EMA21 ❌"; trendText = "Bearish 🚨"; }
-  } else if (timeframe === "15m") {
-    if (ema9 > ema21 && ema21 > ema50) { emaCrossText = "Strong Bullish ✅✅"; trendText = "Bullish 🚨"; }
-    else if (ema9 > ema21 && ema21 < ema50) { emaCrossText = "Small Bullish ✅"; trendText = "Bullish 🚨"; }
-    else if (ema9 < ema21 && ema21 > ema50) { emaCrossText = "Small Bearish ❌"; trendText = "Bearish 🚨"; }
-    else if (ema9 < ema21 && ema21 < ema50) { emaCrossText = "Strong Bearish ❌❌"; trendText = "Bearish 🚨"; }
-  } else if (timeframe === "1h") {
-    if (ema50 > ema200) { emaCrossText = "EMA50 > EMA200 ✅"; trendText = "Bullish 🚨"; }
-    else { emaCrossText = "EMA50 < EMA200 ❌"; trendText = "Bearish 🚨"; }
+// Build Telegram message
+function buildMessage({
+  symbol,
+  timeframe,
+  trendText,
+  emaCrossText,
+  priceVsEmaText,
+  emaVsBBText,
+  bb,
+  price,
+  bollMsg,
+  macdText,
+  rsiVal,
+  rsiSignal,
+  rsiSmaText,
+  volObvText,
+  adxText,
+  stochVal,
+  stochText,
+  tpSlLong,
+  tpSlShort,
+  fib,
+}) {
+  let tpSection = "";
+  if (trendText.includes("Bullish")) {
+    tpSection = [
+      `Entry Price: ${price}`,
+      `TP1 (Next Resistance 1): ${tpSlLong.tp1}`,
+      `TP2 (Next Resistance 2): ${tpSlLong.tp2}`,
+      `SL: ${tpSlLong.sl}`,
+    ].join("\n");
+  } else if (trendText.includes("Bearish")) {
+    tpSection = [
+      `Entry Price: ${price}`,
+      `Support TP1: ${tpSlShort.tp1}`,
+      `Support TP2: ${tpSlShort.tp2}`,
+      `SL: ${tpSlShort.sl}`,
+    ].join("\n");
   }
 
-  return { emaCrossText, trendText, emaVsBBText };
-}
-
-// Build Telegram message
-function buildMessage({ symbol, timeframe, trendText, emaCrossText, priceVsEmaText, emaVsBBText, bb, price, bollMsg, macdText, rsiVal, rsiSignal, stochK, stochCondition, volObvText, adxText, tpSl }) {
   return [
     `🚨 ${symbol} (${timeframe.toUpperCase()})`,
     ``,
     `Trend: ${trendText}`,
     `EMA Crossover: ${emaCrossText}`,
-    `EMA vs BB Mid: ${emaVsBBText}`,
     `EMA vs Price: ${priceVsEmaText}`,
+    `EMA vs BB Mid: ${emaVsBBText}`,
     ``,
     `Bollinger Bands:`,
     `Price: ${price}`,
@@ -121,18 +128,23 @@ function buildMessage({ symbol, timeframe, trendText, emaCrossText, priceVsEmaTe
     `LB: ${bb.lower}`,
     `${bollMsg}`,
     ``,
-    `MACD: ${macdText}`,
+    `${macdText}`,
     `RSI(14): ${rsiVal} → ${rsiSignal}`,
-    `Stoch RSI: ${stochK.toFixed(2)} → ${stochCondition}`,
+    `${rsiSmaText}`,
     `${volObvText}`,
     `${adxText}`,
+    `Stoch RSI: ${stochVal} → ${stochText}`,
     ``,
-    `Entry: ${tpSl.entry}`,
-    `TP1: ${tpSl.tp1}`,
-    `TP2: ${tpSl.tp2}`,
-    `SL: ${tpSl.sl}`,
+    `Fibonacci Levels:`,
+    `Fib 0.382: ${fib.fib382}`,
+    `Fib 0.618: ${fib.fib618}`,
     ``,
-    `Available commands: /eth5m /eth15m /eth1h /sol5m /sol15m /sol1h /link5m /link15m /link1h`
+    `${tpSection}`,
+    ``,
+    `Commands:`,
+    `/eth5m /eth15m /eth1h`,
+    `/sol5m /sol15m /sol1h`,
+    `/link5m /link15m /link1h`,
   ].join("\n");
 }
 
@@ -142,56 +154,129 @@ async function computeSignal(symbol, timeframe) {
   const klines = await fetchKlines(symbol, timeframe, fetchLimit);
   if (!klines || klines.length === 0) throw new Error("No klines");
 
-  const closes = klines.map(k => k.close);
-  const highs = klines.map(k => k.high);
-  const lows = klines.map(k => k.low);
-  const volumes = klines.map(k => k.volume);
+  const closes = klines.map((k) => k.close);
+  const highs = klines.map((k) => k.high);
+  const lows = klines.map((k) => k.low);
+  const volumes = klines.map((k) => k.volume);
 
   const price = +last(closes).toFixed(6);
 
+  // EMA
+  const ema9 = safeLast(EMA.calculate({ period: 9, values: closes }));
+  const ema21 = safeLast(EMA.calculate({ period: 21, values: closes }));
+  const ema50 = safeLast(EMA.calculate({ period: 50, values: closes }));
+  const ema200 = safeLast(EMA.calculate({ period: 200, values: closes }));
+
+  // Bollinger
   const bb = safeLast(BollingerBands.calculate({ period: 20, stdDev: 2, values: closes })) || { upper: null, middle: null, lower: null };
+
+  // MACD
   const macd = safeLast(MACD.calculate({ fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, values: closes })) || { histogram: 0 };
+
+  // RSI & SMA9
   const rsiArr = RSI.calculate({ period: 14, values: closes });
   const rsiVal = +(safeLast(rsiArr) || 0).toFixed(2);
-  const rsiSignal = rsiVal > 70 ? "Overbought 🔥" : rsiVal < 30 ? "Oversold ✅" : "Neutral";
+  const rsiSmaVal = +(safeLast(SMA.calculate({ period: 9, values: rsiArr.length ? rsiArr : [rsiVal] })) || 0).toFixed(2);
+  const rsiSignal = rsiVal > 76 ? "OVERBOUGHT 🔥" : rsiVal > 70 ? "Extreme Strong ✅✅" : rsiVal > 55 ? "Bullish ✅" : rsiVal < 50 ? "Bearish ❌" : "Neutral";
+  const rsiSmaText = rsiVal > rsiSmaVal ? "RSI > SMA9 ✅" : "RSI < SMA9 ❌";
 
+  // OBV & ADX
+  const obvArr = OBV.calculate({ close: closes, volume: volumes });
+  const obv = safeLast(obvArr) || 0;
+  const volumeRising = volumes[volumes.length - 1] > volumes[volumes.length - 2];
+  const obvRising = obvArr && obvArr.length >= 2 ? obv > obvArr[obvArr.length - 2] : true;
+  const volObvText = volumeRising && obvRising ? "Volume+OBV rising ✅" : !volumeRising && !obvRising ? "Volume+OBV falling ❌" : "Mixed Volume/OBV";
+
+  let adxVal = null;
+  try {
+    const adxArr = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
+    const aobj = safeLast(adxArr);
+    adxVal = aobj ? +(aobj.adx || aobj) : null;
+  } catch (e) {
+    adxVal = null;
+  }
+  const adxText = adxVal !== null ? (adxVal > 25 ? `ADX: ${adxVal.toFixed(2)} Strong ✅` : `ADX: ${adxVal.toFixed(2)} Weak ❌`) : "ADX: n/a";
+
+  // ATR
+  const atr = +(safeLast(ATR.calculate({ high: highs, low: lows, close: closes, period: 14 })) || 0).toFixed(6);
+
+  // Stoch RSI
   const stochLen = 14;
   const rsiSlice = rsiArr.slice(-stochLen);
-  const rsiLow = Math.min(...rsiSlice);
-  const rsiHigh = Math.max(...rsiSlice);
+  const rsiLow = Math.min(...(rsiSlice.length ? rsiSlice : [rsiVal]));
+  const rsiHigh = Math.max(...(rsiSlice.length ? rsiSlice : [rsiVal]));
   const stochRaw = rsiHigh === rsiLow ? 0 : (rsiVal - rsiLow) / (rsiHigh - rsiLow);
-  const stochK = +(stochRaw * 100).toFixed(2);
-  const stochCondition = stochK < 20 ? "Oversold BUY" : stochK > 80 ? "Overbought SELL" : "Neutral";
+  const stochVal = +(stochRaw * 100).toFixed(2);
+  const stochText = stochRaw < 0.2 ? "Oversold BUY" : stochRaw > 0.8 ? "Overbought SELL" : "Neutral";
 
-  const volumeRising = volumes[volumes.length - 1] > volumes[volumes.length - 2];
-  const obv = safeLast(OBV.calculate({ close: closes, volume: volumes })) || 0;
-  const volObvText = volumeRising ? "Volume+OBV rising ✅" : "Volume+OBV falling ❌";
+  // Bollinger message
+  const bollMsg = price >= bb.upper ? "Near Upper BB ❌" : price <= bb.lower ? "Near Lower BB ✅" : "Near Middle BB";
 
-  const adxArr = ADX.calculate({ high: highs, low: lows, close: closes, period: 14 });
-  const adxVal = safeLast(adxArr)?.adx || 0;
-  const adxText = adxVal > 25 ? `ADX: ${adxVal.toFixed(2)} Strong ✅` : `ADX: ${adxVal.toFixed(2)} Weak ❌`;
+  // EMA vs BB middle
+  let emaVsBBText = "";
+  if (ema9 > bb.middle && ema21 > bb.middle) emaVsBBText = "Strong Bullish ✅✅";
+  else if (ema9 > bb.middle && ema21 < bb.middle) emaVsBBText = "Small Bullish ✅";
+  else emaVsBBText = "Neutral / Bearish ❌";
 
-  const priceVsEmaText = price > safeLast(EMA.calculate({ period: 9, values: closes })) ? "Price > EMA9 ✅" : "Price < EMA9 ❌";
-  
-  const { emaCrossText, trendText, emaVsBBText } = getEmaCrossoverSignal(closes, timeframe, bb.middle);
-
-  // Custom TP/SL calculation (example: 0.5% / 1% move)
-  let tpSl = {};
-  if (trendText.includes("Bullish")) {
-    tpSl.entry = price;
-    tpSl.tp1 = +(price * 1.005).toFixed(6);
-    tpSl.tp2 = +(price * 1.01).toFixed(6);
-    tpSl.sl = +(price * 0.995).toFixed(6);
-  } else {
-    tpSl.entry = price;
-    tpSl.tp1 = +(price * 0.995).toFixed(6);
-    tpSl.tp2 = +(price * 0.99).toFixed(6);
-    tpSl.sl = +(price * 1.005).toFixed(6);
+  // EMA crossover logic per timeframe
+  let emaCrossText = "";
+  let trendText = "";
+  if (timeframe === "5m") {
+    emaCrossText = ema9 > ema21 ? "EMA9 > EMA21 ✅" : "EMA9 < EMA21 ❌";
+    trendText = ema9 > ema21 ? "Bullish 🚨" : "Bearish 🚨";
+  } else if (timeframe === "15m") {
+    if (ema9 > ema21 && ema21 > ema50) {
+      emaCrossText = "Strong Bullish ✅✅";
+      trendText = "Bullish 🚨";
+    } else if (ema9 > ema21 && ema21 < ema50) {
+      emaCrossText = "Small Bullish ✅";
+      trendText = "Bullish 🚨";
+    } else if (ema9 < ema21 && ema21 > ema50) {
+      emaCrossText = "Small Bearish ❌";
+      trendText = "Bearish 🚨";
+    } else if (ema9 < ema21 && ema21 < ema50) {
+      emaCrossText = "Strong Bearish ❌❌";
+      trendText = "Bearish 🚨";
+    } else {
+      emaCrossText = "Neutral EMA";
+      trendText = "Neutral";
+    }
+  } else if (timeframe === "1h") {
+    emaCrossText = ema50 > ema200 ? "EMA50 > EMA200 ✅" : "EMA50 < EMA200 ❌";
+    trendText = ema50 > ema200 ? "Bullish 🚨" : "Bearish 🚨";
   }
 
-  const macdText = macd.histogram > 0 ? "Bullish ✅" : "Bearish ❌";
-  
-  return buildMessage({ symbol, timeframe, trendText, emaCrossText, priceVsEmaText, emaVsBBText, bb, price, bollMsg: "", macdText, rsiVal, rsiSignal, stochK, stochCondition, volObvText, adxText, tpSl });
+  // TP/SL Custom formula: next resistance/support based on recent range
+  const recentHigh = Math.max(...highs.slice(-20));
+  const recentLow = Math.min(...lows.slice(-20));
+  const tpSlLong = { tp1: +(price + (recentHigh - price) * 0.5).toFixed(6), tp2: +(price + (recentHigh - price) * 0.8).toFixed(6), sl: +(recentLow).toFixed(6) };
+  const tpSlShort = { tp1: +(price - (price - recentLow) * 0.5).toFixed(6), tp2: +(price - (price - recentLow) * 0.8).toFixed(6), sl: +(recentHigh).toFixed(6) };
+
+  // Fibonacci
+  const fib = fibLevels(highs, lows, Math.min(200, closes.length));
+
+  return buildMessage({
+    symbol,
+    timeframe,
+    trendText,
+    emaCrossText,
+    priceVsEmaText: price > ema9 ? "Price > EMA9 ✅" : "Price < EMA9 ❌",
+    emaVsBBText,
+    bb,
+    price,
+    bollMsg,
+    macdText: macd.histogram > 0 ? "MACD Bullish ✅" : "MACD Bearish ❌",
+    rsiVal,
+    rsiSignal,
+    rsiSmaText,
+    volObvText,
+    adxText,
+    stochVal,
+    stochText,
+    tpSlLong,
+    tpSlShort,
+    fib,
+  });
 }
 
 // Telegram command handlers
